@@ -21,10 +21,10 @@ data. Built with React and ChakraUI
 ```bash
   npm install
 ```
-> with yarn: `yarn install`
+> `yarn install`
 
 ### Start the server
 ```bash
   npm start
 ```
-> with yarn: `yarn start`
+> `yarn start`
