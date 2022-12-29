@@ -7,13 +7,13 @@ data. Built with React and ChakraUI
 ### Clone the project
  
 ```bash
-  git clone https://github.com/ammar-ahmed22/PathfinderV2.git
+  git clone https://github.com/ammar-ahmed22/PrayerCalendar.git
 ```
  
 ### Go to the project directory
 
 ```bash
- cd PathfinderV2
+ cd PrayerCalendar
 ```
  
 ### Install dependencies
