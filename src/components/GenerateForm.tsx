@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import "datejs"
 import { Formik, Field, FormikProps, FormikErrors } from "formik";
 import { 
   FormControl,
@@ -9,28 +10,30 @@ import {
   Button,
   FormErrorMessage,
   Input,
-  Slider,
-  SliderTrack,
-  SliderFilledTrack,
-  SliderThumb,
-  Box,
   RadioGroup,
   Radio,
-  Stack
+  Stack,
+  Checkbox
 } from "@chakra-ui/react";
 import LocationInput from "./LocationInput";
-import { getPrayerTimes, generateICS } from "../utils/prayerTimes";
 import FileDownload from "./FileDownload";
 import InfoFormLabel from "./InfoFormLabel";
+import { authorities, formFieldDescriptions } from "../data/form";
+import { generateICS } from "../utils/ics";
+import { rangeTimings } from "../utils/prayer";
+import type { Prayer } from "../utils/prayer"; 
+
 
 interface FormValues{
-  email: string,
   address: string,
-  yearMonth: string,
-  latLng: { lat: number, lng: number },
-  numMonths: number,
-  calculationMethod: string,
-  madhab: string 
+  start: string,
+  end: string,
+  latlng: { lat: number, lng: number },
+  authority: string,
+  madhab: string,
+  duration: number,
+  offsets: string,
+  includeSunrise: boolean
 }
 
 interface File{
@@ -42,32 +45,6 @@ const GenerateForm: React.FC = () => {
   const [generating, setGenerating] = useState(false);
   const [file, setFile] = useState<File>()
 
-  const calculationMethods = [
-    "Shia Ithna-Ansari",
-    "University of Islamic Sciences, Karachi",
-    "Islamic Society of North America",
-    "Muslim World League",
-    "Umm Al-Qura University, Makkah",
-    "Egyptian General Authority of Survey",
-    "Institute of Geophysics, University of Tehran",
-    "Gulf Region",
-    "Kuwait",
-    "Qatar",
-    "Majlis Ugama Islam Singapura, Singapore",
-    "Union Organization islamic de France",
-    "Diyanet İşleri Başkanlığı, Turkey",
-    "Spiritual Administration of Muslims of Russia"
-  ];
-
-  const formFieldDescriptions = {
-    address: "Your address is used to calculate the prayer times for your locality using latitude and longitude coordinates. Your data is not saved anywhere.",
-    yearMonth: "The month to start generating events from. i.e. December 2022: Prayer events will be generated for all of December 2022 + the number of months you decided to generate for.",
-    numMonths: "The number of month to generate events for. 1 month will generate only for the selected month, 2 months will generate for the selected month as well as the next month, etc.",
-    calculationMethod: "The authority to be used to conduct the calculations. Each authority uses slightly different variations for calculations. It is best to use the authority closest to your locality.",
-    madhab: "The school of thought you implement for matters of fiqh. This is only pertinent for calculation of Asr time. Note: Shafi, Hanbali and Maliki all use the same method, Hanafi differs with a later asr time.",
-    email: "The generated file is sent to your email of choosing to make the event upload easier. Email addresses are never saved anywhere."
-  }
-
   const createFile = (fileName: string, fileContent: string) => {
     const blob = new Blob([fileContent]);
     const url = URL.createObjectURL(blob);
@@ -77,21 +54,47 @@ const GenerateForm: React.FC = () => {
     })
   }
 
+  const createOffsets = (offsetStr: string) : { [x in Prayer]?: number } => {
 
+    const offsets : { [x in Prayer]?: number } = {};
+    const offsetArr = offsetStr.split(",").map( str => parseInt(str.trim()));
+    const idxMap : Record<number, Prayer> = {
+      0: "Fajr",
+      1: "Dhuhr",
+      2: "Asr",
+      3: "Maghrib",
+      4: "Isha"
+    }
+    for (let i = 0; i < offsetArr.length; i++){
+      if (offsetArr[i] !== 0){
+        offsets[idxMap[i]] = offsetArr[i];
+      }
+    }
+
+    return offsets
+  }
+
+  const createFileName = (start: Date, end: Date) : string => {
+    const startStr = start.toString("yyyy-MM-dd");
+    const endStr = end.toString("yyyy-MM-dd");
+    return `prayers_${startStr}_${endStr}.ics`;
+  }
 
   return (
     <Formik
       initialValues={{
-        email: "",
         address: "",
-        yearMonth: "",
-        latLng: {
+        start: Date.today().toString("yyyy-MM-dd"),
+        end: "",
+        latlng: {
           lat: -1,
           lng: -1
         },
-        numMonths: 1,
-        calculationMethod: "2",
-        madhab: "0"
+        authority: "2",
+        madhab: "0",
+        duration: 5,
+        offsets: "0,0,0,0,0",
+        includeSunrise: false
       }}
       validateOnBlur={false}
       validateOnChange={false}
@@ -102,50 +105,72 @@ const GenerateForm: React.FC = () => {
           errors.address = "Please select a value from the dropdown."
         }
 
-        if (values.yearMonth === ""){
-          errors.yearMonth = "Start month and year is required"
+        if (values.duration < 5){
+          errors.duration = "Event duration must be greater than or equal to 5 minutes."
         }
+
+        if (values.duration > 60){
+          errors.duration = "Event duration cannot be greater than 60 minutes."
+        }
+
+        if (values.offsets.split(",").length !== 5){
+          errors.offsets = "Offsets must be a comma separated list of 5 values."
+        }
+
+        const offsets = values.offsets.split(",");
+        offsets.forEach( offset => {
+          const o = offset.trim();
+          if (isNaN(parseInt(o)) || parseInt(o) < 0 || parseInt(o) > 60){
+            errors.offsets = "Offset values must be positive integers between 0 and 60"
+          }
+        })
 
         return errors
       }}
       onSubmit={async (values, { validateForm }) => {
         validateForm(values)
-
+        const { 
+          latlng, 
+          start, 
+          end, 
+          authority, 
+          madhab, 
+          duration, 
+          offsets,
+          includeSunrise 
+        } = values;
         setGenerating(true)
-        const [year, month] = values.yearMonth.split("-").map( val => parseInt(val));
-        const timings = await getPrayerTimes({
-          latlng: values.latLng,
-          month: month,
-          year: year,
-          authority: values.calculationMethod,
-          madhab: values.madhab,
-          numberOfMonths: values.numMonths
-        })
+        const timings = await rangeTimings({
+          latlng,
+          start: Date.parse(start),
+          end: Date.parse(end).at("11:59 PM"),
+          authority,
+          madhab
+        });
+        
+        const ics = generateICS(timings, { 
+          duration, 
+          offsets: createOffsets(offsets),
+          includeSunrise
+        });
+        
+        if (ics) {
+          createFile(
+            createFileName(
+              Date.parse(start), 
+              Date.parse(end)
+            ), 
+            ics
+          );
+        }
 
-        const ics = generateICS(timings);
-
-        if (ics) createFile("prayers.ics", ics);
         setGenerating(false);
         
       }}
     >
       {({ handleSubmit, values, setFieldValue, touched, errors } : FormikProps<FormValues>) => (
         <form onSubmit={handleSubmit} >
-          <VStack align="flex-start" flex="1"  >
-            <Heading size="lg">File</Heading>
-            <FormControl isRequired isInvalid={!!errors.email && touched.email} >
-              <InfoFormLabel htmlFor="email" info={formFieldDescriptions.email} >
-                Email
-              </InfoFormLabel>
-              <Field 
-                as={Input}
-                name="email"
-                id="email"
-                type="email"
-                placeholder="Enter your e-mail address"
-              />
-              <FormErrorMessage>{errors.email}</FormErrorMessage>
-            </FormControl>
+          <VStack align="flex-start" flex="1" spacing={4}  >
             <Heading size="lg" >Location</Heading>
             <FormControl isInvalid={!!errors.address && touched.address} isRequired >
               <InfoFormLabel htmlFor="address" info={formFieldDescriptions.address} >
@@ -155,7 +180,7 @@ const GenerateForm: React.FC = () => {
                 onLocationSet={(place) => {
                   const lat = place.geometry?.location?.lat()
                   const lng = place.geometry?.location?.lng()
-                  setFieldValue("latLng", { lat, lng });
+                  setFieldValue("latlng", { lat, lng });
                   setFieldValue("address", place.formatted_address);
                   console.log({ lat, lng });
                 }}
@@ -170,51 +195,41 @@ const GenerateForm: React.FC = () => {
             </FormControl>
             <Heading size="lg">Duration</Heading>
             <Stack w="100%" spacing={5} direction={{ base: "column", md: "row" }} >
-                <FormControl isRequired isInvalid={!!errors.yearMonth && touched.yearMonth} >
-                  <InfoFormLabel htmlFor="yearMonth" info={formFieldDescriptions.yearMonth}>Month To Start Generating From</InfoFormLabel>
-                  <Field 
-                    as={Input}
-                    type="month"
-                    name="yearMonth"
-                    id="yearMonth"
-                  />
-                  <FormErrorMessage>{errors.yearMonth}</FormErrorMessage>
-                </FormControl>
-                <FormControl>
-                  <InfoFormLabel htmlFor="numMonths" info={formFieldDescriptions.numMonths}>Number of Months</InfoFormLabel>
-                  <Slider 
-                    defaultValue={1} 
-                    min={1} 
-                    max={12} 
-                    step={1}
-                    onChange={v => setFieldValue("numMonths", v)} 
-                  >
-                    <SliderTrack >
-                      <SliderFilledTrack bgGradient="linear(to-r, accent1.500, accent2.500)" />
-                    </SliderTrack>
-                    <SliderThumb boxSize="5" >
-                      <Box color="gray.800" fontSize="xs" > 
-                        {values.numMonths}
-                      </Box>
-                    </SliderThumb>
-                    
-                  </Slider>
-                </FormControl>
+              <FormControl isRequired isInvalid={!!errors.start && touched.start}>
+                <InfoFormLabel htmlFor="start" info={formFieldDescriptions.start}>Start Date</InfoFormLabel>
+                <Field 
+                  as={Input}
+                  type="date"
+                  name="start"
+                  id="start"
+                />
+              </FormControl>
+              <FormControl isRequired isInvalid={!!errors.end && touched.end}>
+                <InfoFormLabel htmlFor="end" info={formFieldDescriptions.end}>End Date</InfoFormLabel>
+                <Field 
+                  as={Input}
+                  type="date"
+                  name="end"
+                  min={values.start}
+                  isDisabled={values.start === ""}
+                  id="end"
+                />
+              </FormControl>
             </Stack>
             <Heading size="lg">Calculation Options</Heading>
             <Stack spacing={5} direction={{ base: "column", md: "row" }} >
               <FormControl>
-                <InfoFormLabel htmlFor="calculationMethod" info={formFieldDescriptions.calculationMethod} >Calculation Authority</InfoFormLabel>
+                <InfoFormLabel htmlFor="authority" info={formFieldDescriptions.authority} >Calculation Authority</InfoFormLabel>
                 <Field
                   as={Select}
-                  name="calculationMethod"
-                  id="calculationMethod"
+                  name="authority"
+                  id="authority"
                 >
                   {
-                    calculationMethods.map( (method, idx) => {
+                    authorities.map( (authority, idx) => {
                       return (
-                        <option value={idx} key={method} >
-                          {method}
+                        <option value={idx} key={authority} >
+                          {authority}
                         </option>
                       )
                     })
@@ -232,6 +247,39 @@ const GenerateForm: React.FC = () => {
                 </RadioGroup>
               </FormControl>
             </Stack>
+            <Heading size="lg">Event Options</Heading>
+            <Stack w="100%" spacing={5} direction={{ base: "column", md: "row" }} >
+              <FormControl isInvalid={!!errors.duration && touched.duration}>
+                  <InfoFormLabel htmlFor="duration" info={formFieldDescriptions.duration}>Event Duration</InfoFormLabel>
+                  <Field
+                    as={Input}
+                    type="number"
+                    name="duration"
+                    id="duration"
+                  />
+                  <FormErrorMessage>{errors.duration}</FormErrorMessage>
+              </FormControl>
+              <FormControl isInvalid={!!errors.offsets && touched.offsets}>
+                <InfoFormLabel htmlFor="offsets" info={formFieldDescriptions.offsets}>Offsets</InfoFormLabel>
+                <Field 
+                  as={Input}
+                  type="text"
+                  name="offsets"
+                  id="offsets"
+                />
+                <FormErrorMessage>{errors.offsets}</FormErrorMessage>
+              </FormControl>
+            </Stack>
+            <FormControl>
+              <Field
+                as={Checkbox}
+                name="includeSunrise"
+                id="includeSunrise"
+                colorScheme="accent1"
+              >
+                Include Sunrise?
+              </Field>
+            </FormControl>
             <Button type="submit" colorScheme="accent1" isLoading={generating} loadingText="Generating"  >Generate</Button>
             {
               file && (

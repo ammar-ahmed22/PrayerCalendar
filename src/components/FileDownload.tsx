@@ -6,8 +6,10 @@ import {
   AlertDescription,
   Button,
   Text,
-  Link
+  Link,
+  useColorModeValue
 } from "@chakra-ui/react"
+import { scrollToId } from "../utils/dom";
 
 interface FileDownloadProps{
   name: string,
@@ -15,7 +17,10 @@ interface FileDownloadProps{
   onDownload?: () => void
 }
 
+
+
 const FileDownload : React.FC<FileDownloadProps> = ({ name, url, onDownload }) => {
+  const linkColor = useColorModeValue("green.700", "green.200");
   return (
     <Alert
       status="success"
@@ -31,7 +36,7 @@ const FileDownload : React.FC<FileDownloadProps> = ({ name, url, onDownload }) =
         File Generated!
       </AlertTitle>
       <AlertDescription maxWidth="sm" >
-        <Text>Your file is ready to be downloaded. You can find resources on how to upload to your calendar here.</Text>
+        <Text>Your file is ready to be downloaded. You can find resources on how to upload to your calendar <Link color={linkColor} onClick={() => scrollToId("how-ics")}>here</Link>.</Text>
         <Button as={Link} download={name} href={url} mt="4" colorScheme="green" onClick={onDownload} >Download</Button>
       </AlertDescription>
     </Alert>

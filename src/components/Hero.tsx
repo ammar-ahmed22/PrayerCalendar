@@ -9,16 +9,17 @@ import {
 } from "@chakra-ui/react"
 import { ColorModeSwitcher } from "../ColorModeSwitcher";
 import { FaLongArrowAltRight } from "react-icons/fa";
+import { scrollToId } from "../utils/dom";
 
 const Hero: React.FC = () => {
 
-  const scrollToId = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-  }
-
   return (
     <VStack minH="100vh" justify="center" textAlign="center" direction="column" >
-      <ColorModeSwitcher />
+      <ColorModeSwitcher 
+        pos="absolute"
+        top="0"
+        left="0"
+      />
       <Heading variant="gradient" size="4xl" lineHeight="base" fontWeight="extrabold" >Prayer Calendar</Heading>
       <Text fontSize="3xl" >Create prayer time events for your calendar.</Text>
       <Text fontSize="4xl" >🕌 <Text as="span" verticalAlign="middle"><Icon as={FaLongArrowAltRight} /></Text> 📅</Text>
